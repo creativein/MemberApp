@@ -62,3 +62,4 @@ buck-out/
 .expo/*
 web-build/
 android/java_pid7708.hprof
+debug.log

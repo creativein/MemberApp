@@ -23,8 +23,9 @@ const girlImg = require("../images/girl.jpg");
 let unreadMsgObj = {};
 let eventAttached = false;
 let loggedInUserMobile: string | null | undefined = null;
-let subscriptionResult: firebase.firestore.DocumentData | undefined = {};
+
 let chatListResult: firebase.firestore.DocumentData[] = [];
+let connectList: firebase.firestore.DocumentData[] = [];
 let filterObj = {
   age1822: false,
   age2330: false,
@@ -39,6 +40,11 @@ export default class Home extends Component {
   memberArray: Array<Object> = [];
   db: firebase.firestore.Firestore;
   _unsubscribe: any = () => { };
+  subscriptionResult = {
+    expiry: [],
+    count: [],
+    id: []
+  };
 
   constructor(props: Readonly<{}>) {
     super(props);
@@ -55,6 +61,7 @@ export default class Home extends Component {
 
   UNSAFE_componentWillReceiveProps() {
     this.getMemberList();
+    this.updateSubscriptionList();
   }
 
   getMemberList() {
@@ -134,8 +141,8 @@ export default class Home extends Component {
           }
         });
 
-        this.checkChatList();
         this.checkForSubscription();
+        this.getChatConnect();
       }
     });
   }
@@ -209,19 +216,22 @@ export default class Home extends Component {
     this.setState({ showFilterModal: true });
   }
 
-  checkChatList() {
-    this.db.collection("chat_list")
+  getChatConnect() {
+    this.db.collection("chat_connect")
       .doc(loggedInUserMobile)
-      .collection('members')
+      .collection('chats')
       .get()
       .then((querySnapshot) => {
-        let docData: firebase.firestore.DocumentData[] = [];
+        let chatListData: firebase.firestore.DocumentData[] = [];
+        let connectListData: firebase.firestore.DocumentData[] = [];
 
         querySnapshot.forEach(doc => {
-          return docData.push(doc.data().mobile);
+          chatListData.push(doc.data().mobile);
+          connectListData.push(doc.data());
         });
 
-        chatListResult = docData;
+        chatListResult = chatListData;
+        connectList = connectListData;
 
         this.sortUnread();
       })
@@ -297,11 +307,62 @@ export default class Home extends Component {
   }
 
   checkForSubscription() {
+    this.subscriptionResult = {
+      expiry: [],
+      count: [],
+      id: []
+    };
+
+    let data = null;
     this.db.collection("subscription_list")
       .doc(loggedInUserMobile)
+      .collection('list')
       .get()
-      .then((doc) => {
-        subscriptionResult = doc.data();
+      .then(querySnapshot => {
+        querySnapshot.forEach(doc => {
+          data = doc.data();
+          this.subscriptionResult.expiry.push(data.expiry_date);
+          this.subscriptionResult.count.push(data.remaining_chat);
+          this.subscriptionResult.id.push(data.id);
+        });
+      })
+      .catch(error => {
+        console.log('Error = ', error);
+      });
+  }
+
+  updateSubscriptionList() {
+    const today = new Date().getTime();
+    let data = null;
+    let expiryDate;
+    let expiredPackage: any[] = [];
+    const db = this.db.collection("subscription_list")
+      .doc(loggedInUserMobile)
+      .collection('list');
+
+    db.get()
+      .then(querySnapshot => {
+        const packageLen = querySnapshot.size;
+
+        // Keep atleast 1 package
+        if (packageLen < 2) return;
+
+        querySnapshot.forEach(doc => {
+          data = doc.data();
+          expiryDate = new Date(data.expiry_date).getTime();
+
+          if (today > expiryDate) {
+            expiredPackage.push(data.id);
+          }
+        });
+
+        for (let i = 0; i < (packageLen - 1); i++) {
+          if (i < expiredPackage.length) {
+            db.doc(expiredPackage[i]).delete();
+          }
+        }
+
+        this.checkForSubscription();
       })
       .catch(error => {
         console.log('Error = ', error);
@@ -309,65 +370,88 @@ export default class Home extends Component {
   }
 
   navigateToChat(screen: string, from: any,
-    user: { mobile: firebase.firestore.DocumentData; }, isSubscribed: boolean) {
+    user: { mobile: firebase.firestore.DocumentData; }, subscribedData) {
     this.props.navigation.navigate('HomeComp',
       {
         screen,
         params: {
           from,
           user,
-          isSubscribed
+          subscribedData
         }
       });
   }
 
   verifyOnMemberClick(clickedMember: { mobile: firebase.firestore.DocumentData; }) {
     // Free 1 member chat
-    if (!chatListResult.length) {
-      this.navigateToChat('Chat', this.props.route.params.user, clickedMember, false);
+    if (!connectList.length) {
+      this.navigateToChat('Chat', this.props.route.params.user, clickedMember, {
+        isLifeTime: true
+      });
       return;
     }
 
-    if (subscriptionResult) {
-      const today = new Date().getTime();
-      const expiryDate = new Date(subscriptionResult.expiry_date).getTime();
+    let count = 0;
+    const today = new Date().getTime();
 
-      if (subscriptionResult.status === 'accepted') {
-        if (today > expiryDate) {
-          this.showSubscriptionError('Your subscription has been expired, please re-subscribe again.');
-        } else if (subscriptionResult.remaining_chat < 1) {
-          if (chatListResult.indexOf(clickedMember.mobile) > -1) {
-            this.navigateToChat('Chat', this.props.route.params.user, clickedMember, true);
-            return;
-          }
+    const chatConnect = connectList.find(chat => {
+      return chat.mobile === clickedMember.mobile;
+    });
 
-          this.showSubscriptionError('Your chat limit has exhausted, please re-subscribe again.');
-        } else if (subscriptionResult.remaining_chat) {
-          this.navigateToChat('Chat', this.props.route.params.user, clickedMember, true);
-        }
-      } else if (subscriptionResult.status === 'pending') {
-        // If subscription is not expired then user can chat with old contacted members
-        if (expiryDate && (today <= expiryDate)
-          && chatListResult.indexOf(clickedMember.mobile) > -1) {
-          this.navigateToChat('Chat', this.props.route.params.user, clickedMember, true);
-        } else {
-          Alert.alert('', 'Your subscription request is under pending state and you will be notified once its approved. Thank you!');
-        }
+    const subscribedIndex = this.subscriptionResult.expiry.findIndex((date, index) => {
+      let expiryDate = new Date(this.subscriptionResult.expiry[index]).getTime();
+      return date !== '' && this.subscriptionResult.count[index] && (today <= expiryDate);
+    });
+
+    this.subscriptionResult.count.map((remaining, index) => {
+      if (this.subscriptionResult.expiry[index] !== '') {
+        count += remaining;
       }
-    } else {
-      if (chatListResult.indexOf(clickedMember.mobile) > -1) {
-        this.navigateToChat('Chat', this.props.route.params.user, clickedMember, true);
-        return;
-      }
+    });
 
-      this.props.navigation.navigate('HomeComp',
-        {
-          screen: 'Subscription',
-          params: {
-            user: this.props.route.params.user
-          }
-        }
-      )
+    // For old valid chats
+    if (chatConnect) {
+      const expiryDate = new Date(chatConnect.expiry).getTime();
+
+      if (today <= expiryDate) {
+        this.navigateToChat('Chat', this.props.route.params.user, clickedMember, chatConnect);
+      } else if (subscribedIndex > -1) {
+        this.navigateToChat('Chat', this.props.route.params.user, clickedMember, {
+          expiry: this.subscriptionResult.expiry[subscribedIndex],
+          id: this.subscriptionResult.id[subscribedIndex],
+          isUpdate: true
+        });
+      } else if (this.subscriptionResult.expiry.includes('')) {
+        Alert.alert('', 'Your subscription request is under pending state and you will be notified once its approved. Thank you!');
+      } else if (!count) {
+        this.showSubscriptionError('Your chat limit has exhausted, please re-subscribe again.');
+      } else if (subscribedIndex === -1) {
+        this.showSubscriptionError('Your subscription has been expired, please re-subscribe again.');
+      }
+      return;
+    }
+
+    // New Chat
+    if (subscribedIndex > -1) {
+      this.navigateToChat('Chat', this.props.route.params.user, clickedMember, {
+        expiry: this.subscriptionResult.expiry[subscribedIndex],
+        id: this.subscriptionResult.id[subscribedIndex]
+      });
+      return;
+    }
+
+    if (subscribedIndex === -1 && this.subscriptionResult.expiry.includes('')) {
+      Alert.alert('', 'Your subscription request is under pending state and you will be notified once its approved. Thank you!');
+      return;
+    }
+
+    if (subscribedIndex === -1) {
+      this.showSubscriptionError('Your subscription has been expired, please re-subscribe again.');
+      return;
+    }
+
+    if (!count) {
+      this.showSubscriptionError('Your chat limit has exhausted, please re-subscribe again.');
     }
   }
 

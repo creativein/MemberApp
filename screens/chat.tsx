@@ -205,21 +205,58 @@ export default class Chat extends Component {
 
     batch.set(toRef, this.state.person.loggedInMember);
 
+    const chatConnect = this.db.collection("chat_connect")
+      .doc(this.state.person.from)
+      .collection('chats')
+      .doc(this.state.person.to);
+
+    // Connect db
+    let connectObj = {
+      expiry: this.props.route.params.subscribedData.expiry,
+      connect_date: new Date().toLocaleDateString('en-US'),
+      package_id: this.props.route.params.subscribedData.id || '',
+      mobile: this.state.person.to
+    };
+
+    if (this.props.route.params.subscribedData.isLifeTime) {
+      const dateNow = new Date();
+      const date = new Date(dateNow.getFullYear() + 10, dateNow.getMonth(), dateNow.getDate());
+      connectObj.expiry = new Date(date).toLocaleDateString('en-US')
+    }
+
+    batch.set(chatConnect, connectObj);
+
     // Commit the batch
     batch.commit().then(function () {
       console.log('Chat db updated');
     });
 
-    if (this.props.route.params.isSubscribed) {
-      this.updateChatCountInDb();
-    }
+    this.updateChatCountInDb();
   }
 
   updateChatCountInDb() {
     this.db.collection("subscription_list")
       .doc(this.state.person.loggedInMember.mobile)
+      .collection('list')
+      .doc(this.props.route.params.subscribedData.id)
       .update({
         remaining_chat: firebase.firestore.FieldValue.increment(-1)
+      })
+      .then(_ => {
+        console.log('Decremented chat count');
+      }).catch(error => {
+        console.log('Error = ', error);
+      });
+  }
+
+  updateChatConnect() {
+    this.db.collection("chat_connect")
+      .doc(this.state.person.from)
+      .collection('chats')
+      .doc(this.state.person.to)
+      .update({
+        expiry: this.props.route.params.subscribedData.expiry,
+        package_id: this.props.route.params.subscribedData.id
       })
       .then(_ => {
         console.log('Decremented chat count');
@@ -270,6 +307,10 @@ export default class Chat extends Component {
     if (this.state.textMessage.length) {
       if (!this.state.messageList.length) {
         this.setChatListDb();
+      }
+
+      if (this.props.route.params.subscribedData.isUpdate) {
+        this.updateChatConnect();
       }
 
       let msgId = firebase

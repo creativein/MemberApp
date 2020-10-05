@@ -18,20 +18,14 @@ export default class MySubscription extends Component {
     super();
 
     this.state = {
-      expiry_date: null,
-      status: null,
-      remaining_chat: null,
-      package_name: null,
+      expiry_date: [],
+      status: [],
+      remaining_chat: [],
+      package_name: [],
       isLoading: false
     };
 
     this.db = firebase.firestore();
-  }
-
-  updateInputVal = (val, prop) => {
-    const state = this.state;
-    state[prop] = val;
-    this.setState(state);
   }
 
   UNSAFE_componentWillMount() {
@@ -39,20 +33,36 @@ export default class MySubscription extends Component {
   }
 
   checkForSubscription() {
+    let data = null;
+    let subscription = {
+      expiry_date: [],
+      status: [],
+      remaining_chat: [],
+      package_name: []
+    };
+
     this.setState({
       isLoading: true
     });
 
     this.db.collection("subscription_list")
       .doc(this.props.route.params.user.mobile)
+      .collection('list')
       .get()
-      .then((doc) => {
+      .then((querySnapshot) => {
         this.setState({
           isLoading: false
         });
 
-        if (doc.exists) {
-          this.setState(doc.data());
+        if (querySnapshot.size) {
+          querySnapshot.forEach(doc => {
+            data = doc.data();
+            subscription.status.push(data.status);
+            subscription.expiry_date.push(data.expiry_date);
+            subscription.remaining_chat.push(data.remaining_chat);
+            subscription.package_name.push(data.package_name);
+          });
+          this.setState(subscription);
         } else {
           this.setState({
             status: null
@@ -96,21 +106,35 @@ export default class MySubscription extends Component {
               <View style={{ marginBottom: 30 }}>
                 <View style={styles.item}>
                   <Text style={styles.lable}>Package Name</Text>
-                  <Text style={styles.itemValue}>{this.state.package_name}</Text>
+                  <Text style={styles.itemValue}>{this.state.package_name.join(', ')}</Text>
                 </View>
                 <View style={styles.item}>
                   <Text style={styles.lable}>Status</Text>
-                  <Text style={styles.itemValue}>{this.state.status}</Text>
+                  <Text style={styles.itemValue}>{this.state.status.join(', ')}</Text>
                 </View>
                 <View style={styles.item}>
                   <Text style={styles.lable}>Remaining Chats</Text>
-                  <Text style={styles.itemValue}>{this.state.remaining_chat}</Text>
+                  <Text style={styles.itemValue}>{this.state.remaining_chat.join(', ')}</Text>
                 </View>
 
-                {this.state.expiry_date !== '' &&
+                {this.state.expiry_date.length > 0 &&
                   <View style={styles.item}>
-                    <Text style={styles.lable}>Expiry Date </Text>
-                    <Text style={styles.itemValue}>{this.formatDate(this.state.expiry_date)}</Text>
+                    <Text style={styles.lable}>Expiry Date</Text>
+                    <View style={{ flexShrink: 1 }}>
+                      {this.state.expiry_date.map((item, index) => {
+                        if (item !== '') {
+                          return <Text style={[styles.itemValue, { flexShrink: 0 }]} key={index}>
+                            {this.formatDate(item)}
+                          </Text>
+                        } else {
+                          return <Text style={[styles.itemValue, { textTransform: 'uppercase' }]}
+                            key={index}>
+                            NIL
+                      </Text>
+                        }
+                      })
+                      }
+                    </View>
                   </View>
                 }
               </View>
@@ -160,7 +184,8 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: 'blue',
     marginLeft: 30,
-    textTransform: 'capitalize'
+    textTransform: 'capitalize',
+    flexShrink: 1
   },
   item: {
     flexDirection: 'row',

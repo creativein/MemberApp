@@ -32,22 +32,25 @@ export default class Subscription extends Component {
       isLoading: true
     });
 
-    this.db.collection("package_list").get().then((querySnapshot) => {
-      querySnapshot.forEach((doc) => {
-        let docData: firebase.firestore.DocumentData;
-        docData = doc.data();
+    this.db.collection("package_list")
+      .orderBy('chatNumber', 'asc')
+      .get()
+      .then((querySnapshot) => {
+        querySnapshot.forEach((doc) => {
+          let docData: firebase.firestore.DocumentData;
+          docData = doc.data();
 
-        this.setState(prevState => {
-          return {
-            packages: [...prevState.packages, docData],
-          };
+          this.setState(prevState => {
+            return {
+              packages: [...prevState.packages, docData],
+            };
+          });
         });
-      });
 
-      this.setState({
-        isLoading: false
-      });
-    })
+        this.setState({
+          isLoading: false
+        });
+      })
       .catch(err => {
         this.setState({
           isLoading: false
@@ -58,65 +61,60 @@ export default class Subscription extends Component {
 
   getConfirmation() {
     Alert.alert('', 'Are you sure want to subscribe this package?',
-    [
+      [
         {
-            text: 'Cancel'
+          text: 'Cancel'
         },
         {
-            text: 'OK',
-            onPress: () => this.setSubscription()
+          text: 'OK',
+          onPress: () => this.setSubscription()
         }
-    ]);
+      ]);
   }
 
   setSubscription() {
     const packageDetails = this.state.packages[packageSelected];
     const packageDoc = {
-      member_mobile: this.props.route.params.user.mobile,
+      member_mobile: this.props.route.params.user.mobile.toString(),
       package_name: packageDetails.name,
       request_date_time: new Date().toLocaleDateString("en-US"),
       status: 'pending',
       accepted_by: '',
       remaining_chat: packageDetails.chatNumber,
       expiry_date: '',
-      name: this.props.route.params.user.name
+      name: this.props.route.params.user.name,
+      id: new Date().getTime().toString()
     };
 
-    const subscriptionDoc = this.db.collection("subscription_list")
+    const db = this.db.collection("subscription_list")
       .doc(packageDoc.member_mobile);
 
-    subscriptionDoc.get()
-      .then(doc => {
-        const docData = doc.data();
+    db
+      .set({ id: packageDoc.id }) // sample field for avoiding shallow data
+      .then(_ => {
+        db.collection('list')
+          .doc(packageDoc.id)
+          .set(packageDoc)
+          .then(_ => {
+            Alert.alert('', 'Thank you for subscribing. Your account will be updated soon.',
+              [
+                {
+                  text: 'OK',
+                  onPress: () =>
+                    this.props.navigation.navigate('HomeComp',
+                      {
+                        screen: 'Home',
+                        params: {
+                          user: this.props.route.params.user
+                        }
+                      }
+                    )
+                }
+              ]);
+          })
+          .catch(err => console.log('Subscription update error = ', err));
+      }).catch(err => console.log('Subscription update error = ', err));
 
-        if (docData) {
-          subscriptionDoc.update({
-            status: 'pending',
-            package_name: packageDetails.name,
-            request_date_time: new Date().toLocaleDateString("en-US"),
-            remaining_chat: docData.remaining_chat
-          });
-        } else {
-          subscriptionDoc.set(packageDoc);
-        }
-
-        Alert.alert('', 'Thank you for subscribing. Your account will be updated soon.',
-          [
-            {
-              text: 'OK',
-              onPress: () =>
-                this.props.navigation.navigate('HomeComp',
-                  {
-                    screen: 'Home',
-                    params: {
-                      user: this.props.route.params.user
-                    }
-                  }
-                )
-            }
-          ]);
-      })
-      .catch(err => console.log('Subscription update error = ', err));
   }
 
   setPackage(currentPackage: number) {
@@ -143,7 +141,7 @@ export default class Subscription extends Component {
       <View style={styles.container}>
         <ImageBackground source={image} style={styles.image}>
           <CardSilder style={{ marginTop: 60 }} onPackageChange={this.setPackage}>
-            {this.state.packages.map(((item, index) => (
+            {this.state.packages.map((item, index) => (
               <View key={index}>
                 <Text style={styles.packagaeName}> {item.name}</Text>
                 <View key={item.name}
@@ -159,7 +157,7 @@ export default class Subscription extends Component {
             </Text>
                 </View>
               </View>
-            )))}
+            ))}
           </CardSilder>
 
           <TouchableOpacity
